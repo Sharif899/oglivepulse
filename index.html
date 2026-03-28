@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OG Live Pulse — OpenGradient Network Monitor</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#030507;--surface:#060810;--card:#080b14;--panel:#0a0e18;
+  --border:#0f1520;--border2:#161e30;--border3:#1e2840;
+  --text:#c8d8e8;--muted:#1e3048;--dim:#0c1220;
+  --pulse:#00ff88;--pulse-dim:#001a0d;
+  --inference:#00c8ff;--inference-dim:#001a22;
+  --upload:#ffaa00;--upload-dim:#1a0e00;
+  --tee:#ff4488;--tee-dim:#1a0010;
+  --settle:#aa88ff;--settle-dim:#0d0018;
+  --other:#4488ff;--other-dim:#000d1a;
+  --mono:'Space Mono',monospace;--sans:'Space Grotesk',sans-serif;
+}
+html,body{height:100%;overflow:hidden}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);display:flex;flex-direction:column;-webkit-font-smoothing:antialiased}
+
+/* ── Pulse animation ── */
+@keyframes heartbeat{
+  0%{transform:scale(1);opacity:.6}
+  14%{transform:scale(1.1);opacity:1}
+  28%{transform:scale(1);opacity:.8}
+  42%{transform:scale(1.06);opacity:1}
+  70%,100%{transform:scale(1);opacity:.6}
+}
+@keyframes ripple{
+  0%{transform:scale(1);opacity:.6}
+  100%{transform:scale(3);opacity:0}
+}
+@keyframes slideIn{
+  from{opacity:0;transform:translateX(-8px)}
+  to{opacity:1;transform:translateX(0)}
+}
+@keyframes countUp{
+  from{transform:translateY(6px);opacity:0}
+  to{transform:translateY(0);opacity:1}
+}
+@keyframes glow{0%,100%{opacity:.6}50%{opacity:1}}
+
+/* ── Header ── */
+header{
+  flex-shrink:0;height:54px;
+  background:var(--surface);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;padding:0 20px;
+  justify-content:space-between;z-index:10;
+}
+.h-left{display:flex;align-items:center;gap:14px}
+.pulse-orb{
+  position:relative;width:28px;height:28px;
+  display:flex;align-items:center;justify-content:center;
+}
+.orb-core{
+  width:12px;height:12px;border-radius:50%;
+  background:var(--pulse);
+  box-shadow:0 0 12px var(--pulse);
+  animation:heartbeat 2s infinite;
+}
+.orb-ring{
+  position:absolute;inset:0;border-radius:50%;
+  border:1px solid var(--pulse);opacity:0;
+  animation:ripple 2s infinite;
+}
+.h-title{font-family:var(--mono);font-size:13px;font-weight:700;letter-spacing:.5px}
+.h-title span{color:var(--pulse)}
+.h-sub{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:1.5px;text-transform:uppercase}
+.h-right{display:flex;align-items:center;gap:12px}
+.network-badge{
+  font-family:var(--mono);font-size:9px;letter-spacing:1px;
+  padding:3px 10px;border-radius:2px;
+  border:1px solid rgba(0,255,136,.2);
+  background:var(--pulse-dim);color:var(--pulse);
+}
+.rpc-status{
+  font-family:var(--mono);font-size:9px;color:var(--muted);
+  display:flex;align-items:center;gap:5px;
+}
+.rpc-dot{width:5px;height:5px;border-radius:50%;background:var(--muted)}
+.rpc-dot.connected{background:var(--pulse);box-shadow:0 0 5px var(--pulse);animation:glow 2s infinite}
+.h-link{font-family:var(--mono);font-size:9px;color:var(--muted);text-decoration:none;letter-spacing:.5px;transition:color .15s}
+.h-link:hover{color:var(--text)}
+
+/* ── Main layout ── */
+.layout{flex:1;display:grid;grid-template-columns:200px 1fr 280px;overflow:hidden}
+@media(max-width:900px){.layout{grid-template-columns:1fr 280px}}
+@media(max-width:640px){.layout{grid-template-columns:1fr}}
+
+/* ── Left: stats column ── */
+.stats-col{
+  background:var(--surface);border-right:1px solid var(--border);
+  display:flex;flex-direction:column;overflow:hidden;
+}
+@media(max-width:900px){.stats-col{display:none}}
+
+.stat-block{padding:14px 16px;border-bottom:1px solid var(--border)}
+.sb-label{font-family:var(--mono);font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.sb-value{font-family:var(--mono);font-size:28px;font-weight:700;line-height:1;letter-spacing:-1px}
+.sb-value.pulse{color:var(--pulse)}
+.sb-value.inference{color:var(--inference)}
+.sb-value.upload{color:var(--upload)}
+.sb-value.tee{color:var(--tee)}
+.sb-sub{font-family:var(--mono);font-size:9px;color:var(--muted);margin-top:4px}
+.sb-value.animating{animation:countUp .3s ease}
+
+/* Type breakdown */
+.type-list{padding:14px 16px;flex:1;overflow-y:auto}
+.type-list::-webkit-scrollbar{width:2px}
+.type-list::-webkit-scrollbar-thumb{background:var(--border2)}
+.type-item{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:5px 0;border-bottom:1px solid var(--border);
+  font-family:var(--mono);font-size:10px;
+}
+.type-item:last-child{border-bottom:none}
+.type-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0;margin-right:6px}
+.type-name{flex:1;color:var(--muted)}
+.type-count{font-weight:700}
+
+/* Gas tracker */
+.gas-block{padding:14px 16px;border-top:1px solid var(--border)}
+.gas-value{font-family:var(--mono);font-size:20px;font-weight:700;color:var(--upload);margin-top:6px}
+.gas-bar{height:3px;background:var(--border2);border-radius:3px;margin-top:8px;overflow:hidden}
+.gas-fill{height:100%;background:var(--upload);border-radius:3px;transition:width .5s}
+
+/* ── Center: main visualizer ── */
+.center-col{display:flex;flex-direction:column;overflow:hidden}
+
+/* Block pulse visualizer */
+.pulse-viz{
+  flex-shrink:0;height:120px;background:var(--panel);
+  border-bottom:1px solid var(--border);
+  display:flex;align-items:flex-end;padding:10px 16px;gap:3px;
+  overflow:hidden;position:relative;
+}
+.pulse-label{
+  position:absolute;top:10px;left:16px;
+  font-family:var(--mono);font-size:8px;letter-spacing:2px;
+  text-transform:uppercase;color:var(--muted);
+}
+.pulse-bar{
+  flex-shrink:0;width:8px;border-radius:2px 2px 0 0;
+  transition:height .3s ease,background .3s;
+  min-height:3px;cursor:pointer;
+}
+.pulse-bar:hover{opacity:.8;filter:brightness(1.2)}
+.current-block{
+  position:absolute;right:16px;top:10px;
+  font-family:var(--mono);font-size:11px;color:var(--pulse);
+  font-weight:700;
+}
+
+/* Transaction feed */
+.tx-feed-header{
+  padding:10px 16px;border-bottom:1px solid var(--border);
+  background:var(--surface);
+  display:flex;align-items:center;justify-content:space-between;
+  flex-shrink:0;
+}
+.tx-feed-title{font-family:var(--mono);font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
+.tx-feed-count{font-family:var(--mono);font-size:10px;color:var(--pulse)}
+.tx-feed{flex:1;overflow-y:auto;padding:6px 0}
+.tx-feed::-webkit-scrollbar{width:3px}
+.tx-feed::-webkit-scrollbar-thumb{background:var(--border2)}
+
+.tx-item{
+  display:flex;align-items:flex-start;gap:10px;
+  padding:8px 16px;border-bottom:1px solid var(--border);
+  cursor:pointer;transition:background .1s;
+  animation:slideIn .25s ease;
+}
+.tx-item:hover{background:var(--dim)}
+.tx-item:last-child{border-bottom:none}
+.tx-type-pill{
+  flex-shrink:0;font-family:var(--mono);font-size:8px;
+  letter-spacing:.5px;padding:2px 6px;border-radius:2px;
+  font-weight:700;text-transform:uppercase;margin-top:2px;
+}
+.tx-body{flex:1;min-width:0}
+.tx-hash{font-family:var(--mono);font-size:10px;color:var(--text);margin-bottom:2px}
+.tx-from{font-family:var(--mono);font-size:9px;color:var(--muted)}
+.tx-meta{display:flex;gap:8px;margin-top:3px}
+.tx-block{font-family:var(--mono);font-size:8px;color:var(--muted)}
+.tx-gas{font-family:var(--mono);font-size:8px;color:var(--muted)}
+.tx-time{font-family:var(--mono);font-size:8px;color:var(--muted);margin-left:auto;flex-shrink:0}
+
+/* TX type colors */
+.tx-type-pill.inference{background:var(--inference-dim);color:var(--inference);border:1px solid rgba(0,200,255,.2)}
+.tx-type-pill.upload{background:var(--upload-dim);color:var(--upload);border:1px solid rgba(255,170,0,.2)}
+.tx-type-pill.tee{background:var(--tee-dim);color:var(--tee);border:1px solid rgba(255,68,136,.2)}
+.tx-type-pill.settle{background:var(--settle-dim);color:var(--settle);border:1px solid rgba(170,136,255,.2)}
+.tx-type-pill.other{background:var(--other-dim);color:var(--other);border:1px solid rgba(68,136,255,.2)}
+.tx-type-pill.transfer{background:var(--dim);color:var(--muted);border:1px solid var(--border2)}
+
+/* ── Right: block inspector ── */
+.right-col{
+  background:var(--surface);border-left:1px solid var(--border);
+  display:flex;flex-direction:column;overflow:hidden;
+}
+@media(max-width:640px){.right-col{display:none}}
+
+.inspector-header{
+  padding:12px 16px;border-bottom:1px solid var(--border);
+  font-family:var(--mono);font-size:8px;letter-spacing:2px;
+  text-transform:uppercase;color:var(--muted);
+  display:flex;align-items:center;justify-content:space-between;
+}
+.inspector-body{flex:1;overflow-y:auto;padding:12px 16px}
+.inspector-body::-webkit-scrollbar{width:2px}
+.inspector-body::-webkit-scrollbar-thumb{background:var(--border2)}
+
+.inspect-section{margin-bottom:16px}
+.is-label{font-family:var(--mono);font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+.is-row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:10px}
+.is-row:last-child{border-bottom:none}
+.is-key{color:var(--muted)}
+.is-val{color:var(--text);text-align:right;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.is-val.green{color:var(--pulse)}
+.is-val.blue{color:var(--inference)}
+.is-val.amber{color:var(--upload)}
+
+/* Tx type donut */
+.donut-wrap{display:flex;align-items:center;gap:14px;margin-top:8px}
+.donut{width:64px;height:64px;flex-shrink:0}
+.donut-legend{flex:1;display:flex;flex-direction:column;gap:4px}
+.dl-row{display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:9px}
+.dl-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.dl-name{color:var(--muted);flex:1}
+.dl-pct{color:var(--text)}
+
+/* Empty inspector state */
+.inspector-empty{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  height:100%;text-align:center;gap:8px;padding:20px;
+}
+.ie-icon{font-size:28px;opacity:.4}
+.ie-text{font-family:var(--mono);font-size:10px;color:var(--muted);line-height:1.6}
+
+/* ── Bottom bar ── */
+.bottom-bar{
+  flex-shrink:0;height:32px;background:var(--surface);
+  border-top:1px solid var(--border);
+  display:flex;align-items:center;padding:0 16px;gap:20px;
+  font-family:var(--mono);font-size:9px;color:var(--muted);
+  letter-spacing:.3px;
+}
+.bb-item{display:flex;align-items:center;gap:5px}
+.bb-dot{width:4px;height:4px;border-radius:50%}
+.bb-val{color:var(--text)}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="h-left">
+    <div class="pulse-orb">
+      <div class="orb-ring"></div>
+      <div class="orb-core"></div>
+    </div>
+    <div>
+      <div class="h-title"><span>OG</span> LIVE PULSE</div>
+      <div class="h-sub">Network Activity Monitor</div>
+    </div>
+  </div>
+  <div class="h-right">
+    <div class="rpc-status">
+      <div class="rpc-dot" id="rpcDot"></div>
+      <span id="rpcStatus">CONNECTING...</span>
+    </div>
+    <div class="network-badge">TESTNET · 10740</div>
+    <a class="h-link" href="https://explorer.opengradient.ai" target="_blank">EXPLORER ↗</a>
+    <a class="h-link" href="https://docs.opengradient.ai" target="_blank">DOCS ↗</a>
+  </div>
+</header>
+
+<!-- Main layout -->
+<div class="layout">
+
+  <!-- Left: stats -->
+  <div class="stats-col">
+    <div class="stat-block">
+      <div class="sb-label">// Latest Block</div>
+      <div class="sb-value pulse" id="statBlock">—</div>
+      <div class="sb-sub" id="statBlockTime">waiting...</div>
+    </div>
+    <div class="stat-block">
+      <div class="sb-label">// Transactions</div>
+      <div class="sb-value inference" id="statTxTotal">0</div>
+      <div class="sb-sub">total seen</div>
+    </div>
+    <div class="stat-block">
+      <div class="sb-label">// Inferences</div>
+      <div class="sb-value tee" id="statInference">0</div>
+      <div class="sb-sub">on-chain AI calls</div>
+    </div>
+
+    <!-- Type breakdown -->
+    <div class="type-list">
+      <div class="sb-label" style="margin-bottom:10px">// TX Types</div>
+      <div class="type-item">
+        <div class="type-dot" style="background:var(--inference)"></div>
+        <span class="type-name">Inference</span>
+        <span class="type-count" style="color:var(--inference)" id="cnt-inference">0</span>
+      </div>
+      <div class="type-item">
+        <div class="type-dot" style="background:var(--tee)"></div>
+        <span class="type-name">TEE</span>
+        <span class="type-count" style="color:var(--tee)" id="cnt-tee">0</span>
+      </div>
+      <div class="type-item">
+        <div class="type-dot" style="background:var(--settle)"></div>
+        <span class="type-name">Proof Settle</span>
+        <span class="type-count" style="color:var(--settle)" id="cnt-settle">0</span>
+      </div>
+      <div class="type-item">
+        <div class="type-dot" style="background:var(--upload)"></div>
+        <span class="type-name">Model Upload</span>
+        <span class="type-count" style="color:var(--upload)" id="cnt-upload">0</span>
+      </div>
+      <div class="type-item">
+        <div class="type-dot" style="background:var(--other)"></div>
+        <span class="type-name">Other</span>
+        <span class="type-count" style="color:var(--other)" id="cnt-other">0</span>
+      </div>
+    </div>
+
+    <!-- Gas -->
+    <div class="gas-block">
+      <div class="sb-label">// Avg Gas Price</div>
+      <div class="gas-value" id="statGas">— Gwei</div>
+      <div class="gas-bar"><div class="gas-fill" id="gasBar" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <!-- Center: visualizer + feed -->
+  <div class="center-col">
+
+    <!-- Block pulse bars -->
+    <div class="pulse-viz" id="pulseViz">
+      <div class="pulse-label">// Block Pulse</div>
+      <div class="current-block" id="currentBlockLabel">Block #—</div>
+    </div>
+
+    <!-- TX feed header -->
+    <div class="tx-feed-header">
+      <span class="tx-feed-title">// Live Transaction Feed</span>
+      <span class="tx-feed-count" id="feedCount">0 transactions</span>
+    </div>
+
+    <!-- TX feed -->
+    <div class="tx-feed" id="txFeed">
+      <div style="padding:24px 16px;font-family:var(--mono);font-size:11px;color:var(--muted);text-align:center;line-height:1.8">
+        Connecting to OpenGradient RPC...<br>
+        <span style="font-size:9px">ogevmdevnet.opengradient.ai</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right: inspector -->
+  <div class="right-col">
+    <div class="inspector-header">
+      <span>// Block Inspector</span>
+      <span id="inspectorBlock" style="color:var(--pulse)">—</span>
+    </div>
+    <div class="inspector-body" id="inspectorBody">
+      <div class="inspector-empty">
+        <div class="ie-icon">🔍</div>
+        <div class="ie-text">Click any transaction<br>to inspect details.<br><br>Blocks auto-update<br>every 5 seconds.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Bottom bar -->
+<div class="bottom-bar">
+  <div class="bb-item">
+    <div class="bb-dot" style="background:var(--pulse)"></div>
+    RPC: <span class="bb-val">ogevmdevnet.opengradient.ai</span>
+  </div>
+  <div class="bb-item">
+    CHAIN ID: <span class="bb-val">10740</span>
+  </div>
+  <div class="bb-item">
+    BLOCKS: <span class="bb-val" id="bbBlocks">0</span>
+  </div>
+  <div class="bb-item">
+    TPS: <span class="bb-val" id="bbTps">—</span>
+  </div>
+  <div class="bb-item" style="margin-left:auto">
+    LAST UPDATE: <span class="bb-val" id="bbTime">—</span>
+  </div>
+</div>
+
+<script>
+// ── Config ────────────────────────────────────────────────────
+const OG_RPC   = "https://ogevmdevnet.opengradient.ai";
+const EXPLORER = "https://explorer.opengradient.ai";
+const POLL_MS  = 5000; // poll every 5 seconds
+
+// ── State ──────────────────────────────────────────────────────
+let connected    = false;
+let latestBlock  = 0;
+let seenBlocks   = new Set();
+let allTxs       = [];
+let blockHistory = []; // {number, txCount, timestamp}
+let typeCounts   = { inference:0, tee:0, settle:0, upload:0, other:0, transfer:0 };
+let totalTxs     = 0;
+let totalInference=0;
+let pollTimer    = null;
+let tpsWindow    = []; // timestamps of recent txs for TPS
+
+// ── RPC call ──────────────────────────────────────────────────
+async function rpc(method, params=[]) {
+  const r = await fetch(OG_RPC, {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({jsonrpc:"2.0",id:1,method,params})
+  });
+  const d = await r.json();
+  if (d.error) throw new Error(d.error.message);
+  return d.result;
+}
+
+// ── Classify transaction ──────────────────────────────────────
+function classifyTx(tx) {
+  const input = (tx.input || "0x").toLowerCase();
+  const sig   = input.slice(0,10);
+  const value = parseInt(tx.value||"0x0",16);
+
+  if (input === "0x" || input.length < 4) {
+    return { type:"transfer", label:"Transfer", color:"var(--muted)" };
+  }
+
+  // Known OG function signatures
+  const sigs = {
+    "0x5945f5e2": { type:"inference", label:"Inference",    color:"var(--inference)" },
+    "0x8c3f5563": { type:"inference", label:"ML Inference", color:"var(--inference)" },
+    "0x1b2ef1ca": { type:"settle",    label:"Proof Settle", color:"var(--settle)" },
+    "0x4a25d94a": { type:"tee",       label:"TEE Register", color:"var(--tee)" },
+    "0x3d7403a3": { type:"inference", label:"Workflow",     color:"var(--inference)" },
+    "0x095ea7b3": { type:"other",     label:"Approve",      color:"var(--other)" },
+    "0xa9059cbb": { type:"transfer",  label:"Token Tx",     color:"var(--muted)" },
+    "0x40c10f19": { type:"other",     label:"Mint",         color:"var(--other)" },
+  };
+
+  if (sigs[sig]) return sigs[sig];
+
+  // Heuristic: large calldata = likely inference/settle
+  if (input.length > 400) {
+    return { type:"inference", label:"Inference", color:"var(--inference)" };
+  }
+  if (input.length > 100) {
+    return { type:"settle", label:"Data Settle", color:"var(--settle)" };
+  }
+
+  return { type:"other", label:"Contract", color:"var(--other)" };
+}
+
+// ── Fetch latest block and its transactions ───────────────────
+async function fetchLatestBlock() {
+  try {
+    const block = await rpc("eth_getBlockByNumber", ["latest", true]);
+    if (!block) return;
+
+    const blockNum = parseInt(block.number, 16);
+    if (seenBlocks.has(blockNum)) return; // already processed
+    seenBlocks.add(blockNum);
+
+    latestBlock = blockNum;
+    const txs   = block.transactions || [];
+    const ts    = parseInt(block.timestamp, 16);
+
+    // Add to block history for pulse viz
+    blockHistory.push({ number:blockNum, txCount:txs.length, timestamp:ts });
+    if (blockHistory.length > 60) blockHistory.shift();
+
+    // Process transactions
+    const newTxs = txs.map(tx => {
+      const classified = classifyTx(tx);
+      typeCounts[classified.type] = (typeCounts[classified.type]||0) + 1;
+      if (classified.type === "inference") totalInference++;
+      tpsWindow.push(Date.now());
+      return {
+        hash:       tx.hash,
+        from:       tx.from,
+        to:         tx.to,
+        value:      parseInt(tx.value||"0x0",16) / 1e18,
+        gasPrice:   tx.gasPrice ? parseInt(tx.gasPrice,16)/1e9 : 0,
+        gasLimit:   parseInt(tx.gas||"0x0",16),
+        blockNumber:blockNum,
+        timestamp:  ts,
+        input:      tx.input,
+        type:       classified.type,
+        label:      classified.label,
+        color:      classified.color,
+      };
+    });
+
+    totalTxs += newTxs.length;
+    allTxs    = [...newTxs, ...allTxs].slice(0, 200);
+
+    // Update UI
+    setConnected(true);
+    updateStats(blockNum, ts, block);
+    renderPulseViz();
+    renderTxFeed();
+    updateBottomBar(blockNum);
+
+  } catch(err) {
+    console.error("RPC error:", err.message);
+    setConnected(false);
+  }
+}
+
+// ── Set connection status ─────────────────────────────────────
+function setConnected(ok) {
+  connected = ok;
+  const dot = document.getElementById("rpcDot");
+  const status = document.getElementById("rpcStatus");
+  if (ok) {
+    dot.classList.add("connected");
+    status.textContent = "CONNECTED";
+    status.style.color = "var(--pulse)";
+  } else {
+    dot.classList.remove("connected");
+    status.textContent = "RECONNECTING...";
+    status.style.color = "var(--muted)";
+  }
+}
+
+// ── Update stats panel ────────────────────────────────────────
+function updateStats(blockNum, ts, block) {
+  const blockEl = document.getElementById("statBlock");
+  blockEl.textContent = "#" + blockNum.toLocaleString();
+  blockEl.classList.remove("animating");
+  void blockEl.offsetWidth;
+  blockEl.classList.add("animating");
+
+  document.getElementById("statBlockTime").textContent = timeAgo(ts);
+  document.getElementById("statTxTotal").textContent   = totalTxs.toLocaleString();
+  document.getElementById("statInference").textContent = totalInference.toLocaleString();
+
+  // Type counts
+  for (const [key, val] of Object.entries(typeCounts)) {
+    const el = document.getElementById(`cnt-${key}`);
+    if (el) el.textContent = val;
+  }
+
+  // Gas
+  if (block.baseFeePerGas) {
+    const gwei = parseInt(block.baseFeePerGas,16) / 1e9;
+    document.getElementById("statGas").textContent = gwei.toFixed(2) + " Gwei";
+    const pct = Math.min((gwei / 50) * 100, 100);
+    document.getElementById("gasBar").style.width = pct + "%";
+  }
+
+  document.getElementById("inspectorBlock").textContent = "#" + blockNum.toLocaleString();
+  renderInspector(blockNum, ts, block);
+}
+
+// ── Render block pulse visualization ──────────────────────────
+function renderPulseViz() {
+  const viz = document.getElementById("pulseViz");
+  const label = document.getElementById("currentBlockLabel");
+  label.textContent = "Block #" + latestBlock.toLocaleString();
+
+  // Clear existing bars (keep label and current block)
+  const bars = viz.querySelectorAll(".pulse-bar");
+  bars.forEach(b => b.remove());
+
+  const maxTx = Math.max(...blockHistory.map(b => b.txCount), 1);
+
+  blockHistory.forEach((b, i) => {
+    const bar = document.createElement("div");
+    bar.className = "pulse-bar";
+    const heightPct = Math.max((b.txCount / maxTx) * 85, 4);
+    bar.style.height = heightPct + "%";
+
+    // Color by recency
+    const age = blockHistory.length - 1 - i;
+    if (age === 0) {
+      bar.style.background = "var(--pulse)";
+      bar.style.boxShadow  = "0 0 8px var(--pulse)";
+    } else if (age < 5) {
+      bar.style.background = `rgba(0,255,136,${.8 - age*.12})`;
+    } else {
+      bar.style.background = "var(--border3)";
+    }
+
+    bar.title = `Block #${b.number} · ${b.txCount} txs`;
+    bar.onclick = () => highlightBlock(b.number);
+    viz.insertBefore(bar, label);
+  });
+}
+
+// ── Render transaction feed ───────────────────────────────────
+function renderTxFeed() {
+  const feed = document.getElementById("txFeed");
+  document.getElementById("feedCount").textContent = totalTxs + " transactions";
+
+  if (allTxs.length === 0) {
+    feed.innerHTML = `<div style="padding:24px 16px;font-family:var(--mono);font-size:10px;color:var(--muted);text-align:center">No transactions yet in latest blocks.</div>`;
+    return;
+  }
+
+  feed.innerHTML = allTxs.slice(0,80).map(tx => `
+    <div class="tx-item" onclick="inspectTx('${tx.hash}')">
+      <div class="tx-type-pill ${tx.type}">${tx.label}</div>
+      <div class="tx-body">
+        <div class="tx-hash">${tx.hash.slice(0,18)}...${tx.hash.slice(-6)}</div>
+        <div class="tx-from">from ${tx.from ? tx.from.slice(0,10)+"..."+tx.from.slice(-4) : "—"}</div>
+        <div class="tx-meta">
+          <span class="tx-block">block #${tx.blockNumber?.toLocaleString()}</span>
+          <span class="tx-gas">${tx.gasPrice?.toFixed(2)} gwei</span>
+          <span class="tx-time">${timeAgo(tx.timestamp)}</span>
+        </div>
+      </div>
+    </div>
+  `).join("");
+}
+
+// ── Render block inspector ────────────────────────────────────
+function renderInspector(blockNum, ts, block) {
+  const txs = block.transactions || [];
+  const gasUsed = parseInt(block.gasUsed||"0x0",16);
+  const gasLimit= parseInt(block.gasLimit||"0x1",16);
+  const utilPct = gasLimit > 0 ? ((gasUsed/gasLimit)*100).toFixed(1) : "0.0";
+
+  // Count types in this block
+  const blockTypes = {inference:0,tee:0,settle:0,upload:0,other:0,transfer:0};
+  txs.forEach(tx => {
+    const c = classifyTx(tx);
+    blockTypes[c.type] = (blockTypes[c.type]||0) + 1;
+  });
+
+  document.getElementById("inspectorBody").innerHTML = `
+    <div class="inspect-section">
+      <div class="is-label">// Block Info</div>
+      <div class="is-row"><span class="is-key">number</span><span class="is-val green">#${blockNum.toLocaleString()}</span></div>
+      <div class="is-row"><span class="is-key">timestamp</span><span class="is-val">${new Date(ts*1000).toLocaleTimeString()}</span></div>
+      <div class="is-row"><span class="is-key">transactions</span><span class="is-val blue">${txs.length}</span></div>
+      <div class="is-row"><span class="is-key">gas used</span><span class="is-val">${gasUsed.toLocaleString()}</span></div>
+      <div class="is-row"><span class="is-key">utilization</span><span class="is-val amber">${utilPct}%</span></div>
+      <div class="is-row"><span class="is-key">hash</span><span class="is-val" title="${block.hash}">${block.hash ? block.hash.slice(0,10)+"..." : "—"}</span></div>
+      <div class="is-row"><span class="is-key">parent</span><span class="is-val" title="${block.parentHash}">${block.parentHash ? block.parentHash.slice(0,10)+"..." : "—"}</span></div>
+    </div>
+
+    <div class="inspect-section">
+      <div class="is-label">// TX Breakdown</div>
+      ${Object.entries(blockTypes).filter(([k,v])=>v>0).map(([k,v])=>`
+        <div class="is-row">
+          <span class="is-key">${k}</span>
+          <span class="is-val" style="color:var(--${k==='transfer'?'muted':k})">${v}</span>
+        </div>
+      `).join("")}
+    </div>
+
+    <div class="inspect-section">
+      <div class="is-label">// Network Totals</div>
+      <div class="is-row"><span class="is-key">blocks seen</span><span class="is-val green">${seenBlocks.size}</span></div>
+      <div class="is-row"><span class="is-key">total txs</span><span class="is-val blue">${totalTxs.toLocaleString()}</span></div>
+      <div class="is-row"><span class="is-key">inferences</span><span class="is-val" style="color:var(--tee)">${totalInference.toLocaleString()}</span></div>
+    </div>
+
+    <div class="inspect-section">
+      <div class="is-label">// Links</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <a href="${EXPLORER}/block/${blockNum}" target="_blank"
+           style="font-family:var(--mono);font-size:9px;color:var(--pulse);text-decoration:none">
+          ↗ View block on Explorer
+        </a>
+        <a href="${EXPLORER}" target="_blank"
+           style="font-family:var(--mono);font-size:9px;color:var(--muted);text-decoration:none">
+          ↗ OpenGradient Explorer
+        </a>
+      </div>
+    </div>
+  `;
+}
+
+// ── Inspect specific tx ───────────────────────────────────────
+function inspectTx(hash) {
+  const tx = allTxs.find(t => t.hash === hash);
+  if (!tx) return;
+
+  document.getElementById("inspectorBlock").textContent = "#" + tx.blockNumber?.toLocaleString();
+  document.getElementById("inspectorBody").innerHTML = `
+    <div class="inspect-section">
+      <div class="is-label">// Transaction</div>
+      <div class="is-row"><span class="is-key">type</span>
+        <span class="is-val" style="color:${tx.color}">${tx.label}</span></div>
+      <div class="is-row"><span class="is-key">hash</span>
+        <span class="is-val" title="${tx.hash}">${tx.hash.slice(0,14)}...</span></div>
+      <div class="is-row"><span class="is-key">block</span>
+        <span class="is-val green">#${tx.blockNumber?.toLocaleString()}</span></div>
+      <div class="is-row"><span class="is-key">from</span>
+        <span class="is-val" title="${tx.from}">${tx.from ? tx.from.slice(0,12)+"..." : "—"}</span></div>
+      <div class="is-row"><span class="is-key">to</span>
+        <span class="is-val" title="${tx.to}">${tx.to ? tx.to.slice(0,12)+"..." : "contract create"}</span></div>
+      <div class="is-row"><span class="is-key">value</span>
+        <span class="is-val amber">${tx.value?.toFixed(6)} ETH</span></div>
+      <div class="is-row"><span class="is-key">gas price</span>
+        <span class="is-val">${tx.gasPrice?.toFixed(4)} Gwei</span></div>
+      <div class="is-row"><span class="is-key">gas limit</span>
+        <span class="is-val">${tx.gasLimit?.toLocaleString()}</span></div>
+      <div class="is-row"><span class="is-key">time</span>
+        <span class="is-val">${timeAgo(tx.timestamp)}</span></div>
+    </div>
+
+    <div class="inspect-section">
+      <div class="is-label">// Input Data</div>
+      <div style="font-family:var(--mono);font-size:8px;color:var(--muted);word-break:break-all;line-height:1.6;padding:6px;background:var(--dim);border-radius:3px;border:1px solid var(--border)">
+        ${(tx.input||"0x").slice(0,120)}${(tx.input||"").length > 120 ? "..." : ""}
+      </div>
+    </div>
+
+    ${tx.type === "inference" ? `
+    <div class="inspect-section">
+      <div class="is-label">// OG Inference Proof</div>
+      <div style="padding:8px;background:rgba(0,200,255,.05);border:1px solid rgba(0,200,255,.2);border-radius:4px;font-family:var(--mono);font-size:9px;color:var(--inference);line-height:1.6">
+        ✓ Inference transaction detected<br>
+        TEE-verified execution<br>
+        Proof settled on-chain
+      </div>
+    </div>` : ""}
+
+    <div class="inspect-section">
+      <a href="${EXPLORER}/tx/${tx.hash}" target="_blank"
+         style="font-family:var(--mono);font-size:9px;color:var(--pulse);text-decoration:none">
+        ↗ View full transaction on Explorer
+      </a>
+    </div>
+  `;
+}
+
+function highlightBlock(num) {
+  document.getElementById("inspectorBlock").textContent = "#" + num.toLocaleString();
+}
+
+// ── Update bottom bar ─────────────────────────────────────────
+function updateBottomBar(blockNum) {
+  document.getElementById("bbBlocks").textContent = seenBlocks.size;
+  document.getElementById("bbTime").textContent   = new Date().toLocaleTimeString();
+
+  // TPS: txs in last 60 seconds
+  const cutoff = Date.now() - 60000;
+  tpsWindow    = tpsWindow.filter(t => t > cutoff);
+  const tps    = (tpsWindow.length / 60).toFixed(2);
+  document.getElementById("bbTps").textContent = tps;
+}
+
+// ── Time formatting ───────────────────────────────────────────
+function timeAgo(ts) {
+  if (!ts) return "—";
+  const diff = Math.floor(Date.now()/1000) - ts;
+  if (diff < 5)   return "just now";
+  if (diff < 60)  return diff + "s ago";
+  if (diff < 3600)return Math.floor(diff/60) + "m ago";
+  return Math.floor(diff/3600) + "h ago";
+}
+
+// ── Start polling ─────────────────────────────────────────────
+async function startPolling() {
+  await fetchLatestBlock();
+  pollTimer = setInterval(fetchLatestBlock, POLL_MS);
+}
+
+// ── Init ──────────────────────────────────────────────────────
+startPolling();
+
+// Refresh time-ago labels every 10 seconds
+setInterval(() => {
+  if (allTxs.length > 0) renderTxFeed();
+  if (latestBlock > 0) {
+    const latest = blockHistory[blockHistory.length-1];
+    if (latest) document.getElementById("statBlockTime").textContent = timeAgo(latest.timestamp);
+  }
+}, 10000);
+</script>
+</body>
+</html>
